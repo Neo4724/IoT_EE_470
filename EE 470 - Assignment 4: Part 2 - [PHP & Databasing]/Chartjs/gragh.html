@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <title>Sensor Data</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+        }
+
+        #chart-container {
+            width: 900px;
+            margin: auto;
+        }
+
+        .controls {
+            width: 900px;
+            margin: 20px auto;
+        }
+
+        .stats {
+            width: 900px;
+            margin: 30px auto;
+        }
+
+        select {
+            padding: 6px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1 id="pageTitle">Sensor Node 1 Temperature</h1>
+
+    <div class="controls">
+
+        <label for="nodeSelect">
+            Select Sensor:
+        </label>
+
+        <select id="nodeSelect">
+
+            <option value="node_1">Node 1</option>
+            <option value="node_2">Node 2</option>
+            <option value="node_3">Node 3</option>
+            <option value="node_4">Node 4</option>
+            <option value="node_5">Node 5</option>
+
+        </select>
+
+    </div>
+
+    <div id="chart-container">
+        <canvas id="mycanvas"></canvas>
+    </div>
+
+    <div class="stats">
+
+        <h2 id="statsTitle">
+            Sensor Node 1 Statistics
+        </h2>
+
+        <p>
+            Average Temperature:
+            <span id="avgTemp"></span> °C
+        </p>
+
+        <p>
+            Average Humidity:
+            <span id="avgHumidity"></span> %
+        </p>
+
+        <p>
+            Maximum Temperature:
+            <span id="maxTemp"></span> °C
+        </p>
+
+        <p>
+            Minimum Humidity:
+            <span id="minHumidity"></span> %
+        </p>
+
+    </div>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.1/chart.min.js"></script>
+
+    <script src="app.js?v=3"></script>
+
+</body>
+
+</html>
