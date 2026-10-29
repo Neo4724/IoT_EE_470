@@ -1,1 +1,96 @@
+CREATE TABLE sensor_register (
+    node_name VARCHAR(10) NOT NULL,
+    manufacturer VARCHAR(10) NOT NULL,
+    longitude DECIMAL(15,10) NOT NULL,
+    latitude DECIMAL(15,10) NOT NULL,
+
+    PRIMARY KEY (node_name)
+);
+
+
+
+INSERT INTO sensor_register
+(node_name, manufacturer, longitude, latitude)
+VALUES
+('node_1', 'Bosch', -122.7141000, 38.3396000),
+('node_2', 'Siemens', -122.7135000, 38.3401000),
+('node_3', 'Honeywell', -122.7129000, 38.3406000),
+('node_4', 'DHT', -122.7123000, 38.3411000),
+('node_5', 'Sensirion', -122.7117000, 38.3416000);
+
+
+
+CREATE TABLE sensor_data (
+    id INT NOT NULL AUTO_INCREMENT,
+    node_name VARCHAR(10) NOT NULL,
+    time_received DATETIME NOT NULL,
+    temperature DECIMAL(6,2) NOT NULL,
+    humidity DECIMAL(6,2) NOT NULL,
+
+    PRIMARY KEY (id),
+
+    UNIQUE (node_name, time_received),
+
+    CONSTRAINT fk_sensor_node
+        FOREIGN KEY (node_name)
+        REFERENCES sensor_register(node_name),
+
+    CHECK (temperature >= -10 AND temperature <= 100),
+    CHECK (humidity >= 0 AND humidity <= 100)
+);
+
+
+
+INSERT INTO sensor_data
+(node_name, time_received, temperature, humidity)
+VALUES
+
+-- node_1
+('node_1', '2022-10-01 11:00:00', 22.5, 45.0),
+('node_1', '2022-10-01 11:30:00', 23.0, 46.0),
+('node_1', '2022-10-01 12:00:00', 23.5, 47.0),
+('node_1', '2022-10-01 12:30:00', 24.0, 48.0),
+
+-- node_2
+('node_2', '2022-10-01 11:00:00', 20.0, 50.0),
+('node_2', '2022-10-01 11:30:00', 20.5, 51.0),
+('node_2', '2022-10-01 12:00:00', 21.0, 52.0),
+('node_2', '2022-10-01 12:30:00', 21.5, 53.0),
+
+-- node_3
+('node_3', '2022-10-01 11:00:00', 25.0, 40.0),
+('node_3', '2022-10-01 11:30:00', 25.5, 41.0),
+('node_3', '2022-10-01 12:00:00', 26.0, 42.0),
+('node_3', '2022-10-01 12:30:00', 26.5, 43.0),
+
+-- node_4
+('node_4', '2022-10-01 11:00:00', 27.0, 38.0),
+('node_4', '2022-10-01 11:30:00', 27.5, 39.0),
+('node_4', '2022-10-01 12:00:00', 28.0, 40.0),
+('node_4', '2022-10-01 12:30:00', 28.5, 41.0),
+
+-- node_5
+('node_5', '2022-10-01 11:00:00', 18.0, 55.0),
+('node_5', '2022-10-01 11:30:00', 18.5, 56.0),
+('node_5', '2022-10-01 12:00:00', 19.0, 57.0),
+('node_5', '2022-10-01 12:30:00', 19.5, 58.0);
+
+
+
+CREATE VIEW sensor_combined AS
+
+SELECT
+    d.node_name,
+    r.manufacturer,
+    r.longitude,
+    r.latitude,
+    d.time_received,
+    d.temperature,
+    d.humidity
+
+FROM sensor_data d
+
+INNER JOIN sensor_register r
+ON d.node_name = r.node_name;
+
 
