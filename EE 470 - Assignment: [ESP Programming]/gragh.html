@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="UTF-8">
+
+<title>
+EE 470 Sensor Graph
+</title>
+
+<style>
+
+body {
+    font-family: Arial, sans-serif;
+    margin: 30px;
+    background-color: #f4f4f4;
+}
+
+h1,
+h2,
+h3 {
+    color: #117e73;
+}
+
+h1 {
+    text-align: center;
+}
+
+.controls {
+    text-align: center;
+    margin-bottom: 25px;
+}
+
+select {
+    padding: 8px;
+    font-size: 16px;
+
+    border:
+        2px solid #117e73;
+
+    border-radius:
+        5px;
+}
+
+.chart-container {
+    width: 90%;
+    max-width: 900px;
+
+    margin:
+        30px auto;
+
+    background-color:
+        white;
+
+    padding:
+        20px;
+
+    border-top:
+        5px solid #117e73;
+
+    border-radius:
+        8px;
+}
+
+.stats {
+    width: 90%;
+    max-width: 900px;
+
+    margin:
+        30px auto;
+
+    background-color:
+        white;
+
+    padding:
+        20px;
+
+    border-top:
+        5px solid #117e73;
+
+    border-radius:
+        8px;
+}
+
+.stats-grid {
+    display: grid;
+
+    grid-template-columns:
+        repeat(
+            auto-fit,
+            minmax(
+                220px,
+                1fr
+            )
+        );
+
+    gap:
+        15px;
+}
+
+.stat-box {
+    background-color:
+        #f0f8f6;
+
+    padding:
+        15px;
+
+    border:
+        1px solid #cccccc;
+
+    border-radius:
+        6px;
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<h1 id="pageTitle">
+
+NODE 1 Sensor Data
+
+</h1>
+
+
+<div class="controls">
+
+<label for="nodeSelect">
+
+Select Sensor Node:
+
+</label>
+
+
+<select id="nodeSelect">
+
+<option value="node_1">
+Node 1
+</option>
+
+<option value="node_2">
+Node 2
+</option>
+
+</select>
+
+</div>
+
+
+<div class="chart-container">
+
+<h2>
+Temperature
+</h2>
+
+<canvas id="temperatureChart">
+</canvas>
+
+</div>
+
+
+<div class="chart-container">
+
+<h2>
+Humidity
+</h2>
+
+<canvas id="humidityChart">
+</canvas>
+
+</div>
+
+
+<div class="chart-container">
+
+<h2>
+Light Sensor Voltage
+</h2>
+
+<canvas id="lightChart">
+</canvas>
+
+</div>
+
+
+<div class="chart-container">
+
+<h2>
+HC-SR04 Distance
+</h2>
+
+<canvas id="distanceChart">
+</canvas>
+
+</div>
+
+
+<div class="stats">
+
+<h2 id="statsTitle">
+
+NODE 1 Statistics
+
+</h2>
+
+
+<div class="stats-grid">
+
+
+<div class="stat-box">
+
+<h3>
+Temperature
+</h3>
+
+<p>
+Average:
+<strong>
+<span id="avgTemperature">--</span>
+&deg;C
+</strong>
+</p>
+
+<p>
+Minimum:
+<strong>
+<span id="minTemperature">--</span>
+&deg;C
+</strong>
+</p>
+
+<p>
+Maximum:
+<strong>
+<span id="maxTemperature">--</span>
+&deg;C
+</strong>
+</p>
+
+</div>
+
+
+<div class="stat-box">
+
+<h3>
+Humidity
+</h3>
+
+<p>
+Average:
+<strong>
+<span id="avgHumidity">--</span>
+%
+</strong>
+</p>
+
+<p>
+Minimum:
+<strong>
+<span id="minHumidity">--</span>
+%
+</strong>
+</p>
+
+<p>
+Maximum:
+<strong>
+<span id="maxHumidity">--</span>
+%
+</strong>
+</p>
+
+</div>
+
+
+<div class="stat-box">
+
+<h3>
+Light Voltage
+</h3>
+
+<p>
+Average:
+<strong>
+<span id="avgLight">--</span>
+V
+</strong>
+</p>
+
+<p>
+Minimum:
+<strong>
+<span id="minLight">--</span>
+V
+</strong>
+</p>
+
+<p>
+Maximum:
+<strong>
+<span id="maxLight">--</span>
+V
+</strong>
+</p>
+
+</div>
+
+
+<div class="stat-box">
+
+<h3>
+Distance
+</h3>
+
+<p>
+Average:
+<strong>
+<span id="avgDistance">--</span>
+cm
+</strong>
+</p>
+
+<p>
+Minimum:
+<strong>
+<span id="minDistance">--</span>
+cm
+</strong>
+</p>
+
+<p>
+Maximum:
+<strong>
+<span id="maxDistance">--</span>
+cm
+</strong>
+</p>
+
+</div>
+
+</div>
+
+
+<div class="stat-box">
+
+<h3>
+Valid Messages Received
+</h3>
+
+<p>
+<strong>
+<span id="messageCount">
+0
+</span>
+</strong>
+</p>
+
+</div>
+
+
+</div>
+
+
+<script
+src="https://code.jquery.com/jquery-3.6.0.min.js">
+</script>
+
+
+<script
+src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js">
+</script>
+
+
+<script src="app.js?v=10">
+</script>
+
+
+</body>
+
+</html>
