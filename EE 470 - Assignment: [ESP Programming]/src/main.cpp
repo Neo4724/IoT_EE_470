@@ -3,14 +3,22 @@
  * Project/Program Name : EE 470 ESP8266 IoT Sensor System
  * File Name            : main.cpp
  * Author               : Antonio Kassis
- * Date                 : 11/10/2026
- * Version              : 6.0
+ * Date                 : 11/12/2026
+ * Version              : 7.0
  *
  * Purpose:
  * Read photoresistor voltage and HC-SR04 distance when the pushbutton
- * or tilt switch is activated. Obtain the current timestamp and send
- * the measurement to the remote database. If delivery fails, retry
- * the exact same measurement every 30 seconds until confirmed.
+ * or tilt switch is activated.
+ *
+ * If WiFi is available, obtain the timestamp immediately.
+ *
+ * If WiFi is unavailable, save the measurement time using millis().
+ * When WiFi returns, obtain the current timestamp from the time server,
+ * calculate how much time has elapsed since the measurement, and subtract
+ * that elapsed time to reconstruct the original measurement timestamp.
+ *
+ * If delivery fails, retry the exact same measurement every 30 seconds
+ * until confirmed.
  *
  * Inputs:
  * - Photoresistor on A0
@@ -24,6 +32,7 @@
  * - Sensor data
  * - Server response
  * - RSSI
+ * - Reconstructed timestamp during WiFi outage
  *
  * Dependencies:
  * - ESP8266WiFi
@@ -37,7 +46,7 @@
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecureBearSSL.h>
 #include <ArduinoJson.h>
-
+#include <time.h>
 
 // --------------------------------------------------
 // WIFI
@@ -48,6 +57,13 @@ const char* WIFI_SSID =
 
 const char* WIFI_PASSWORD =
     "0pp0pp0pp";
+
+// Try reconnecting every 5 seconds without
+// blocking the rest of the program.
+const unsigned long WIFI_RECONNECT_INTERVAL = 5000;
+
+unsigned long lastWiFiReconnectAttempt = 0;
+bool wifiWasConnected = false;
 
 
 // --------------------------------------------------
@@ -108,11 +124,23 @@ struct PendingMessage {
     bool active;
 
     String node;
+
+    // Final original timestamp that will be
+    // sent to the server.
     String timestamp;
+
+    // True once the original timestamp
+    // has been determined.
+    bool timestampReady;
 
     float lightVoltage;
     float distance;
 
+    // millis() value when the physical
+    // measurement was actually taken.
+    unsigned long measurementMillis;
+
+    // Used for 30-second retransmission.
     unsigned long lastAttempt;
 };
 
@@ -133,6 +161,13 @@ void selectTimeZone();
 void setTimeZone(char choice);
 
 String getCurrentTime();
+
+String subtractSecondsFromTimestamp(
+    const String& timestamp,
+    unsigned long seconds
+);
+
+bool preparePendingTimestamp();
 
 float readLightVoltage();
 float readDistanceCM();
@@ -163,10 +198,7 @@ void setup() {
     pinMode(TRIG_PIN, OUTPUT);
     pinMode(ECHO_PIN, INPUT);
 
-    digitalWrite(
-        TRIG_PIN,
-        LOW
-    );
+    digitalWrite(TRIG_PIN, LOW);
 
 
     pinMode(
@@ -181,7 +213,9 @@ void setup() {
 
 
     pending.active = false;
+    pending.timestampReady = false;
     pending.lastAttempt = 0;
+    pending.measurementMillis = 0;
 
 
     Serial.println();
@@ -196,7 +230,14 @@ void setup() {
 
     connectWiFi();
 
-    printNetworkInfo();
+    if (
+        WiFi.status()
+        == WL_CONNECTED
+    ) {
+
+        printNetworkInfo();
+    }
+
 
     selectTimeZone();
 
@@ -214,8 +255,11 @@ void setup() {
 
 void loop() {
 
+    // Non-blocking WiFi reconnect.
     ensureWiFi();
 
+    // These continue running even if
+    // WiFi is unavailable.
     checkSwitches();
 
     retryPendingMessage();
@@ -242,12 +286,13 @@ void loop() {
 
 
 // --------------------------------------------------
-// CONNECT WIFI
+// INITIAL WIFI CONNECTION
 // --------------------------------------------------
 
 void connectWiFi() {
 
     Serial.println();
+
     Serial.print(
         "Connecting to WiFi"
     );
@@ -259,61 +304,13 @@ void connectWiFi() {
     );
 
 
-    while (
-        WiFi.status()
-        != WL_CONNECTED
-    ) {
-
-        delay(500);
-
-        Serial.print(".");
-    }
-
-
-    Serial.println();
-    Serial.println(
-        "WiFi connected!"
-    );
-}
-
-
-// --------------------------------------------------
-// RECONNECT WIFI IF LOST
-// --------------------------------------------------
-
-void ensureWiFi() {
-
-    if (
-        WiFi.status()
-        == WL_CONNECTED
-    ) {
-
-        return;
-    }
-
-
-    Serial.println();
-    Serial.println(
-        "WiFi disconnected."
-    );
-
-    Serial.println(
-        "Reconnecting..."
-    );
-
-
-    WiFi.disconnect();
-
-    WiFi.begin(
-        WIFI_SSID,
-        WIFI_PASSWORD
-    );
-
-
     unsigned long start =
         millis();
 
 
+    // Only wait 10 seconds.
+    // If the network is unavailable,
+    // continue running offline.
     while (
         WiFi.status()
             != WL_CONNECTED
@@ -337,13 +334,88 @@ void ensureWiFi() {
     ) {
 
         Serial.println(
-            "WiFi reconnected."
+            "WiFi connected!"
         );
+
+        wifiWasConnected = true;
 
     } else {
 
         Serial.println(
-            "WiFi reconnect failed."
+            "WiFi unavailable."
+        );
+
+        Serial.println(
+            "Starting in offline mode."
+        );
+
+        wifiWasConnected = false;
+    }
+}
+
+
+// --------------------------------------------------
+// NON-BLOCKING WIFI RECONNECT
+// --------------------------------------------------
+
+void ensureWiFi() {
+
+    // WiFi is currently connected.
+    if (
+        WiFi.status()
+        == WL_CONNECTED
+    ) {
+
+        // Detect a new reconnection.
+        if (!wifiWasConnected) {
+
+            wifiWasConnected = true;
+
+            Serial.println();
+            Serial.println(
+                "WiFi reconnected!"
+            );
+
+            printNetworkInfo();
+        }
+
+        return;
+    }
+
+
+    // Detect initial disconnection.
+    if (wifiWasConnected) {
+
+        wifiWasConnected = false;
+
+        Serial.println();
+        Serial.println(
+            "WiFi disconnected."
+        );
+    }
+
+
+    // Do not block for 10 seconds.
+    // Simply attempt another connection
+    // every 5 seconds.
+    if (
+        millis()
+            - lastWiFiReconnectAttempt
+        >= WIFI_RECONNECT_INTERVAL
+    ) {
+
+        lastWiFiReconnectAttempt =
+            millis();
+
+
+        Serial.println(
+            "Attempting WiFi reconnect..."
+        );
+
+
+        WiFi.begin(
+            WIFI_SSID,
+            WIFI_PASSWORD
         );
     }
 }
@@ -354,6 +426,15 @@ void ensureWiFi() {
 // --------------------------------------------------
 
 void printNetworkInfo() {
+
+    if (
+        WiFi.status()
+        != WL_CONNECTED
+    ) {
+
+        return;
+    }
+
 
     Serial.println();
 
@@ -405,35 +486,16 @@ void printTimeZoneMenu() {
         "Default = Pacific Time"
     );
 
+
     Serial.println();
 
-    Serial.println(
-        "1) Eastern"
-    );
-
-    Serial.println(
-        "2) Central"
-    );
-
-    Serial.println(
-        "3) Mountain"
-    );
-
-    Serial.println(
-        "4) Pacific"
-    );
-
-    Serial.println(
-        "5) Alaska"
-    );
-
-    Serial.println(
-        "6) Hawaii"
-    );
-
-    Serial.println(
-        "7) Atlantic"
-    );
+    Serial.println("1) Eastern");
+    Serial.println("2) Central");
+    Serial.println("3) Mountain");
+    Serial.println("4) Pacific");
+    Serial.println("5) Alaska");
+    Serial.println("6) Hawaii");
+    Serial.println("7) Atlantic");
 
     Serial.println();
 
@@ -596,7 +658,7 @@ void setTimeZone(char choice) {
 
 
 // --------------------------------------------------
-// GET CURRENT TIME
+// GET CURRENT TIME FROM TIMEAPI.IO
 // --------------------------------------------------
 
 String getCurrentTime() {
@@ -699,6 +761,251 @@ String getCurrentTime() {
 
 
     return "";
+}
+
+
+// --------------------------------------------------
+// SUBTRACT ELAPSED SECONDS FROM TIMESTAMP
+// --------------------------------------------------
+
+String subtractSecondsFromTimestamp(
+    const String& timestamp,
+    unsigned long seconds
+) {
+
+    int year;
+    int month;
+    int day;
+
+    int hour;
+    int minute;
+    int second;
+
+
+    int result =
+        sscanf(
+            timestamp.c_str(),
+            "%d-%d-%d %d:%d:%d",
+            &year,
+            &month,
+            &day,
+            &hour,
+            &minute,
+            &second
+        );
+
+
+    if (result != 6) {
+
+        return "";
+    }
+
+
+    /*
+     * We use UTC here only as a convenient way
+     * to perform calendar arithmetic.
+     *
+     * The timestamp returned by TimeAPI already
+     * represents the selected user's time zone.
+     */
+
+    setenv(
+        "TZ",
+        "UTC0",
+        1
+    );
+
+    tzset();
+
+
+    struct tm timeInfo = {};
+
+    timeInfo.tm_year =
+        year - 1900;
+
+    timeInfo.tm_mon =
+        month - 1;
+
+    timeInfo.tm_mday =
+        day;
+
+    timeInfo.tm_hour =
+        hour;
+
+    timeInfo.tm_min =
+        minute;
+
+    timeInfo.tm_sec =
+        second;
+
+    timeInfo.tm_isdst =
+        0;
+
+
+    time_t currentTime =
+        mktime(
+            &timeInfo
+        );
+
+
+    if (currentTime == -1) {
+
+        return "";
+    }
+
+
+    // Move backward by the amount of time
+    // that passed since the sensor reading.
+    currentTime -= seconds;
+
+
+    struct tm* corrected =
+        gmtime(
+            &currentTime
+        );
+
+
+    if (corrected == nullptr) {
+
+        return "";
+    }
+
+
+    char buffer[20];
+
+
+    strftime(
+        buffer,
+        sizeof(buffer),
+        "%Y-%m-%d %H:%M:%S",
+        corrected
+    );
+
+
+    return String(buffer);
+}
+
+
+// --------------------------------------------------
+// CREATE ORIGINAL TIMESTAMP AFTER WIFI RETURNS
+// --------------------------------------------------
+
+bool preparePendingTimestamp() {
+
+    if (!pending.active) {
+
+        return false;
+    }
+
+
+    if (pending.timestampReady) {
+
+        return true;
+    }
+
+
+    if (
+        WiFi.status()
+        != WL_CONNECTED
+    ) {
+
+        return false;
+    }
+
+
+    Serial.println();
+    Serial.println(
+        "WiFi available."
+    );
+
+    Serial.println(
+        "Obtaining current server time..."
+    );
+
+
+    String currentServerTime =
+        getCurrentTime();
+
+
+    if (currentServerTime == "") {
+
+        Serial.println(
+            "Could not obtain server time."
+        );
+
+        return false;
+    }
+
+
+    // Unsigned subtraction handles millis()
+    // rollover correctly for normal intervals.
+    unsigned long elapsedMilliseconds =
+        millis()
+        - pending.measurementMillis;
+
+
+    unsigned long elapsedSeconds =
+        elapsedMilliseconds / 1000UL;
+
+
+    Serial.print(
+        "Current Server Time: "
+    );
+
+    Serial.println(
+        currentServerTime
+    );
+
+
+    Serial.print(
+        "Elapsed Since Measurement: "
+    );
+
+    Serial.print(
+        elapsedSeconds
+    );
+
+    Serial.println(
+        " seconds"
+    );
+
+
+    String reconstructedTimestamp =
+        subtractSecondsFromTimestamp(
+            currentServerTime,
+            elapsedSeconds
+        );
+
+
+    if (
+        reconstructedTimestamp == ""
+    ) {
+
+        Serial.println(
+            "Could not reconstruct timestamp."
+        );
+
+        return false;
+    }
+
+
+    pending.timestamp =
+        reconstructedTimestamp;
+
+    pending.timestampReady =
+        true;
+
+
+    Serial.print(
+        "Reconstructed Original Timestamp: "
+    );
+
+    Serial.println(
+        pending.timestamp
+    );
+
+
+    return true;
 }
 
 
@@ -840,11 +1147,13 @@ void handleActivation(
     String node
 ) {
 
-    // Do not overwrite a message
-    // that still needs delivery.
+    // Keep the existing behavior:
+    // only one undelivered measurement
+    // may be pending at a time.
     if (pending.active) {
 
         Serial.println();
+
         Serial.println(
             "A previous message is still pending."
         );
@@ -867,6 +1176,17 @@ void handleActivation(
     );
 
 
+    /*
+     * Record the exact millis() value BEFORE
+     * doing network operations.
+     *
+     * This represents when the measurement
+     * was physically triggered.
+     */
+    unsigned long measurementTime =
+        millis();
+
+
     float lightVoltage =
         readLightVoltage();
 
@@ -885,31 +1205,12 @@ void handleActivation(
     }
 
 
-    String timestamp =
-        getCurrentTime();
-
-
-    if (timestamp == "") {
-
-        Serial.println(
-            "ERROR: Could not obtain timestamp."
-        );
-
-        return;
-    }
-
-
-    // Save ORIGINAL values
-    // before trying transmission.
-
+    // Save measurement immediately.
     pending.active =
         true;
 
     pending.node =
         node;
-
-    pending.timestamp =
-        timestamp;
 
     pending.lightVoltage =
         lightVoltage;
@@ -917,8 +1218,17 @@ void handleActivation(
     pending.distance =
         distance;
 
+    pending.measurementMillis =
+        measurementTime;
+
     pending.lastAttempt =
         0;
+
+    pending.timestamp =
+        "";
+
+    pending.timestampReady =
+        false;
 
 
     Serial.print(
@@ -927,15 +1237,6 @@ void handleActivation(
 
     Serial.println(
         pending.node
-    );
-
-
-    Serial.print(
-        "Timestamp: "
-    );
-
-    Serial.println(
-        pending.timestamp
     );
 
 
@@ -967,20 +1268,103 @@ void handleActivation(
     );
 
 
-    Serial.print(
-        "RSSI: "
-    );
+    // ------------------------------------------------
+    // WIFI IS AVAILABLE
+    // ------------------------------------------------
 
-    Serial.print(
-        WiFi.RSSI()
+    if (
+        WiFi.status()
+        == WL_CONNECTED
+    ) {
+
+        Serial.print(
+            "RSSI: "
+        );
+
+        Serial.print(
+            WiFi.RSSI()
+        );
+
+        Serial.println(
+            " dBm"
+        );
+
+
+        /*
+         * Since WiFi is currently working,
+         * obtain the timestamp immediately.
+         */
+        String timestamp =
+            getCurrentTime();
+
+
+        if (timestamp != "") {
+
+            pending.timestamp =
+                timestamp;
+
+            pending.timestampReady =
+                true;
+
+
+            Serial.print(
+                "Timestamp: "
+            );
+
+            Serial.println(
+                pending.timestamp
+            );
+
+
+            sendPendingMessage();
+
+            return;
+        }
+
+
+        /*
+         * Time server failed even though
+         * WiFi is connected.
+         *
+         * Keep the measurement and reconstruct
+         * its timestamp later.
+         */
+        Serial.println(
+            "Time server unavailable."
+        );
+
+        Serial.println(
+            "Measurement saved using elapsed time."
+        );
+
+
+        return;
+    }
+
+
+    // ------------------------------------------------
+    // WIFI IS OFF
+    // ------------------------------------------------
+
+    Serial.println(
+        "WiFi is unavailable."
     );
 
     Serial.println(
-        " dBm"
+        "Measurement saved locally."
     );
 
+    Serial.println(
+        "Waiting for WiFi to return..."
+    );
 
-    sendPendingMessage();
+    Serial.println(
+        "Original time will be reconstructed"
+    );
+
+    Serial.println(
+        "using elapsed milliseconds."
+    );
 }
 
 
@@ -1049,10 +1433,6 @@ bool sendPendingMessage() {
     }
 
 
-    pending.lastAttempt =
-        millis();
-
-
     if (
         WiFi.status()
         != WL_CONNECTED
@@ -1064,6 +1444,23 @@ bool sendPendingMessage() {
 
         return false;
     }
+
+
+    /*
+     * Before transmitting, make sure the
+     * measurement has its original timestamp.
+     */
+    if (!pending.timestampReady) {
+
+        if (!preparePendingTimestamp()) {
+
+            return false;
+        }
+    }
+
+
+    pending.lastAttempt =
+        millis();
 
 
     String url =
@@ -1179,7 +1576,7 @@ bool sendPendingMessage() {
     );
 
 
-    // New message successfully stored.
+    // New record successfully stored.
     if (
         httpCode == 200 &&
         response.indexOf(
@@ -1200,9 +1597,8 @@ bool sendPendingMessage() {
     }
 
 
-    // The server already has this exact
+    // Server already contains the exact
     // node + timestamp record.
-    // This also counts as successful delivery.
     if (
         httpCode == 200 &&
         response.indexOf(
@@ -1251,6 +1647,55 @@ void retryPendingMessage() {
         return;
     }
 
+
+    /*
+     * ------------------------------------------------
+     * OFFLINE MEASUREMENT
+     * ------------------------------------------------
+     *
+     * If this measurement does not yet have a real
+     * timestamp, send it immediately after WiFi
+     * becomes available.
+     */
+
+    if (!pending.timestampReady) {
+
+        if (
+            WiFi.status()
+            == WL_CONNECTED
+        ) {
+
+            Serial.println();
+            Serial.println(
+                "WiFi restored."
+            );
+
+            Serial.println(
+                "Reconstructing original timestamp..."
+            );
+
+
+            if (
+                preparePendingTimestamp()
+            ) {
+
+                sendPendingMessage();
+            }
+        }
+
+
+        return;
+    }
+
+
+    /*
+     * ------------------------------------------------
+     * NORMAL RETRANSMISSION
+     * ------------------------------------------------
+     *
+     * Once the timestamp exists, retry the exact
+     * same message every 30 seconds.
+     */
 
     if (
         millis() - pending.lastAttempt
